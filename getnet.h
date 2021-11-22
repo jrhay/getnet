@@ -1,6 +1,7 @@
 /*
     Output a list of all found network interfaces, their IP address and MAC address
     Uses the getifaddrs() API to determine address information
+
     Created with the help of several answers on StackOverflow.com
 */
 
@@ -12,27 +13,47 @@
 #include <ifaddrs.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#ifdef __linux__
+
+#if __has_include(<netpacket/packet.h>)
 	#include <netpacket/packet.h>
+#endif
+
+#if __has_include(<net/ethernet.h>)
 	#include <net/ethernet.h>
-#else
+#endif
+
+#if __has_include(<net/if_dl.h>)
 	#include <net/if_dl.h>
 #endif
 
+/* Network adapter configuration information */
 struct netif {
-	char *name;
-	char *ip4addr;
-	char *ip6addr;
-	char *macaddr;
-	struct netif *next;
+	char *name;         // System/Device name of network adapter
+	char *ip4addr;      // adapter's IPv4 address, NULL if none found
+	char *ip6addr;      // adapter's IPv6 address, NULL if none found
+	char *macaddr;      // adapter's MAC address, NULL if none found
+	struct netif *next; // Pointer to next adapter, or NULL at end of list
 };
+
+/* Defines to replace memory management functions, if needed */
 
 #ifndef NET_MAC_ADDRSTRLEN
 #define NET_MAC_ADDRSTRLEN 18
 #endif
 
-// Return a pointer to the head of a netif struct list enumerating
-// all avaliable network interfaces.
+#ifndef GETNET_MALLOC
+#define GETNET_MALLOC malloc
+#endif
+
+#ifndef GETNET_FREE
+#define GETNET_FREE free
+#endif
+
+#ifndef GETNET_STRDUP
+#define GETNET_STRDUP strdup
+#endif
+
+/* Return a pointer to the head of a netif struct list enumerating all avaliable network interfaces. */
 struct netif *getnetifs()
 {
     	struct ifaddrs * ifAddrStruct=NULL;
@@ -52,8 +73,9 @@ struct netif *getnetifs()
 			}
 
 			if (current == NULL) {
-				current = malloc(sizeof(struct netif));
-				current->name = strdup(ifa->ifa_name);
+				// Create a new entry for this interface
+				current = GETNET_MALLOC(sizeof(struct netif));
+				current->name = GETNET_STRDUP(ifa->ifa_name);
 				current->ip4addr = NULL;
 				current->ip6addr = NULL;
 				current->macaddr = NULL;
@@ -71,31 +93,31 @@ struct netif *getnetifs()
 			// entry in the ifaddrs array
 
 			if (ifa->ifa_addr->sa_family == AF_INET) {
-				current->ip4addr = malloc(sizeof(char) * INET_ADDRSTRLEN + 1);
+				current->ip4addr = GETNET_MALLOC(sizeof(char) * INET_ADDRSTRLEN + 1);
 				void *addrPtr=&((struct sockaddr_in *)ifa->ifa_addr)->sin_addr;
 				inet_ntop(ifa->ifa_addr->sa_family, addrPtr, current->ip4addr, INET_ADDRSTRLEN);
 			}
 
 			if (ifa->ifa_addr->sa_family == AF_INET6) {
-				current->ip6addr = malloc(sizeof(char) * INET6_ADDRSTRLEN + 1);
+				current->ip6addr = GETNET_MALLOC(sizeof(char) * INET6_ADDRSTRLEN + 1);
 				void *addrPtr=&((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr;
 				inet_ntop(ifa->ifa_addr->sa_family, addrPtr, current->ip6addr, INET6_ADDRSTRLEN);
 			}
 
 			#ifdef AF_PACKET
 			if (ifa->ifa_addr->sa_family == AF_PACKET) {
-				current->macaddr = malloc(sizeof(char) * NET_MAC_ADDRSTRLEN + 1); 
+				current->macaddr = GETNET_MALLOC(sizeof(char) * NET_MAC_ADDRSTRLEN + 1); 
 				struct sockaddr_ll *s = (struct sockaddr_ll*)(ifa->ifa_addr);
 				int i;
 				int len = 0;
 				for (i = 0; i < 6; i++)
-					len += sprintf(macaddr+len, "%02x%s", s->sll_addr[i], i < 5 ? ":":"");
+					len += sprintf(current->macaddr+len, "%02x%s", s->sll_addr[i], i < 5 ? ":":"");
 			}
 			#endif
 
 			#ifdef AF_LINK
 			if (ifa->ifa_addr->sa_family == AF_LINK) {
-				current->macaddr = malloc(sizeof(char) * NET_MAC_ADDRSTRLEN + 1);
+				current->macaddr = GETNET_MALLOC(sizeof(char) * NET_MAC_ADDRSTRLEN + 1);
                 		unsigned char *ptr = (unsigned char *)LLADDR((struct sockaddr_dl *)(ifa->ifa_addr));
                 		sprintf(current->macaddr, "%02x:%02x:%02x:%02x:%02x:%02x",
                         		            *ptr, *(ptr+1), *(ptr+2), *(ptr+3), *(ptr+4), *(ptr+5));
@@ -106,41 +128,20 @@ struct netif *getnetifs()
     	}
 
 	if (ifAddrStruct!=NULL) freeifaddrs(ifAddrStruct);
-	return start;	
+	return start;
 }
 
-// Given an interface name, look up IP4, IP6, and MAC addresses for that interface
-int getaddrs(char *name, char *ip4addr, char *ip6addr, char *macaddr)
-{
-    	struct ifaddrs * ifAddrStruct=NULL;
-    	struct ifaddrs * ifa=NULL;
-	int found = 0;
-
-	ip4addr[0] = '\0';
-	ip6addr[0] = '\0';
-	macaddr[0] = '\0';
-
-    	getifaddrs(&ifAddrStruct);
-    	for (ifa = ifAddrStruct; ifa != NULL; ifa = ifa->ifa_next) {
-		if (strcmp(ifa->ifa_name, name))
-			continue;
-	}
-
-	if (ifAddrStruct!=NULL) freeifaddrs(ifAddrStruct);
-	return found;
-}
-
-// Free all resources used by a struct netif list
+/* Free all resources used by a struct netif list */
 void freenetifs(struct netif *start)
 {
 	struct netif *current;
 	for (current = start; current != NULL; ) {
-		free(current->name);
-		free(current->ip4addr);
-		free(current->ip6addr);
-		free(current->macaddr);
+		GETNET_FREE(current->name);
+		GETNET_FREE(current->ip4addr);
+		GETNET_FREE(current->ip6addr);
+		GETNET_FREE(current->macaddr);
 		struct netif *next = current->next;
-		free(current);
+		GETNET_FREE(current);
 		current = next;
 	}
 }
