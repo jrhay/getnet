@@ -46,10 +46,12 @@ getnet has been tested and is known to work on:
 
 *Compilers and Libraries*
 - GCC 6.2 and later
-- Apple Clang 13 and later
+- Apple Clang 10 and later
 
 *OSes*
 - Ubuntu 18 and later
 - CentOS 6 and later
 - Raspbian 8.3 and later
+- MacOS 10.13 and later
+
  
